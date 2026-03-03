@@ -1,5 +1,5 @@
 {
-  "name": "ai-call-api",
+  "name": "voice-chat-api",
   "version": "1.0.0",
   "main": "server.js",
   "type": "module",
