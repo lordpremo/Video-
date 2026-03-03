@@ -12,20 +12,16 @@ app.use(cors());
 // ---------------------- VOICE CHAT ----------------------
 app.post("/voice-chat", async (req, res) => {
   try {
-    const { audio_url, audio_base64 } = req.body;
+    const { audio_base64 } = req.body;
 
-    if (!audio_url && !audio_base64) {
-      return res.status(400).json({ error: "audio_url or audio_base64 required" });
+    if (!audio_base64) {
+      return res.status(400).json({ error: "audio_base64 required" });
     }
 
     // ---------------------- 1. Deepgram STT ----------------------
-    const sttPayload = audio_url
-      ? { url: audio_url }
-      : { buffer: audio_base64 };
-
     const stt = await axios.post(
       "https://api.deepgram.com/v1/listen",
-      sttPayload,
+      { buffer: audio_base64 },
       {
         headers: {
           Authorization: `Token ${process.env.DEEPGRAM_KEY}`,
