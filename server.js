@@ -1,8 +1,7 @@
 import express from "express";
+import axios from "axios";
 import cors from "cors";
 import dotenv from "dotenv";
-import Replicate from "replicate";
-import { writeFile } from "fs/promises";
 
 dotenv.config();
 
@@ -10,54 +9,65 @@ const app = express();
 app.use(express.json());
 app.use(cors());
 
-const replicate = new Replicate({
-  auth: process.env.REPLICATE_API_KEY
-});
-
-// ---------------------- HOME PAGE ----------------------
-app.get("/", (req, res) => {
-  res.send(`
-    <html>
-      <head>
-        <title>Lord Broken — Replicate Video API</title>
-        <style>
-          body { background:#020617; color:#e5e7eb; font-family:system-ui; padding:24px; }
-          h1 { color:#38bdf8; }
-          code { background:#020617; padding:2px 6px; border-radius:4px; }
-          .card { border:1px solid #1f2937; border-radius:10px; padding:12px; margin-top:10px; }
-          pre { background:#020617; border-radius:6px; padding:8px; font-size:13px; }
-        </style>
-      </head>
-      <body>
-        <h1>Lord Broken — Replicate Video API</h1>
-        <p>POST /video to generate video</p>
-
-        <div class="card">
-          <div class="ep">POST /video</div>
-          <pre>Body:
-{
-  "prompt": "a woman walking in Tokyo at night"
-}</pre>
-        </div>
-
-        <p>Made by <b>Lord Broken</b></p>
-      </body>
-    </html>
-  `);
-});
-
-// ---------------------- VIDEO GENERATION ----------------------
-app.post("/video", async (req, res) => {
+// ---------------------- AI CALL ----------------------
+app.post("/call", async (req, res) => {
   try {
-    const { prompt } = req.body;
-    if (!prompt) return res.status(400).json({ error: "prompt is required" });
+    const { audio_url } = req.body;
+    if (!audio_url) return res.status(400).json({ error: "audio_url is required" });
 
-    const output = await replicate.run("minimax/video-01", {
-      input: { prompt }
-    });
+    // 1. Deepgram → Speech to Text
+    const stt = await axios.post(
+      "https://api.deepgram.com/v1/listen",
+      { url: audio_url },
+      {
+        headers: {
+          Authorization: `Token ${process.env.DEEPGRAM_KEY}`,
+          "Content-Type": "application/json"
+        }
+      }
+    );
+
+    const userText = stt.data.results.channels[0].alternatives[0].transcript;
+
+    // 2. Groq → AI Response
+    const ai = await axios.post(
+      "https://api.groq.com/openai/v1/chat/completions",
+      {
+        model: "llama-3.3-70b-versatile",
+        messages: [
+          { role: "system", content: "You are an AI phone assistant." },
+          { role: "user", content: userText }
+        ]
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${process.env.GROQ_KEY}`,
+          "Content-Type": "application/json"
+        }
+      }
+    );
+
+    const aiText = ai.data.choices[0].message.content;
+
+    // 3. Deepgram TTS → Convert AI text to audio
+    const tts = await axios.post(
+      "https://api.deepgram.com/v1/speak",
+      { text: aiText },
+      {
+        headers: {
+          Authorization: `Token ${process.env.DEEPGRAM_KEY}`,
+          "Content-Type": "application/json"
+        },
+        responseType: "arraybuffer"
+      }
+    );
+
+    const base64Audio = Buffer.from(tts.data).toString("base64");
 
     res.json({
-      video_url: output.url
+      user_text: userText,
+      ai_text: aiText,
+      ai_audio: `data:audio/mp3;base64,${base64Audio}`
     });
 
   } catch (e) {
@@ -66,7 +76,6 @@ app.post("/video", async (req, res) => {
 });
 
 // ---------------------- START SERVER ----------------------
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, "0.0.0.0", () => {
-  console.log(`Lord Broken Replicate Video API running on port ${PORT}`);
+app.listen(3000, () => {
+  console.log("AI Call API running on port 3000");
 });
